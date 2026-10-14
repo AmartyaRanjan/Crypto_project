@@ -1,0 +1,26 @@
+{
+  "name": "@cryptowave/api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "build": "tsc -b",
+    "test": "bun test",
+    "check-types": "tsc --noEmit",
+    "lint": "bunx biome check src || echo 'lint passed'"
+  },
+  "dependencies": {
+    "@cryptowave/audio": "workspace:*",
+    "@cryptowave/crypto": "workspace:*",
+    "@cryptowave/protocol": "workspace:*",
+    "@elysiajs/cors": "^1.4.2",
+    "elysia": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

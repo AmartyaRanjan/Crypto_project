@@ -1,0 +1,28 @@
+import { Elysia } from "elysia";
+import { cors } from "@elysiajs/cors";
+import { healthRoute } from "./routes/health";
+import { encodeRoute } from "./routes/encode";
+import { decodeRoute } from "./routes/decode";
+import { analyzeRoute } from "./routes/analyze";
+
+export const app = new Elysia()
+  .use(
+    cors({
+      origin: true, // Allow any origin in dev or specify client port
+      allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+      exposeHeaders: ["Content-Disposition", "X-CryptoWave-Metrics"],
+    })
+  )
+  .use(healthRoute)
+  .use(encodeRoute)
+  .use(decodeRoute)
+  .use(analyzeRoute)
+  .onError(({ code, error, set }) => {
+    if (code === "NOT_FOUND") {
+      set.status = 404;
+      return { error: "Route not found" };
+    }
+    set.status = 500;
+    const errorMessage = error instanceof Error ? error.message : "Internal server error";
+    return { error: errorMessage };
+  });
