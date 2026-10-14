@@ -44,10 +44,22 @@ export function parseWav(buffer: Uint8Array): WavAudio {
       if (chunkSize < 16) {
         throw new Error(`Invalid fmt chunk size: expected at least 16 bytes, got ${chunkSize}`);
       }
+      if (offset + 8 + 16 > buffer.length) {
+        throw new Error("Invalid WAV file: truncated fmt chunk");
+      }
       audioFormat = view.getUint16(offset + 8, true);
       channels = view.getUint16(offset + 10, true);
       sampleRate = view.getUint32(offset + 12, true);
       bitsPerSample = view.getUint16(offset + 22, true);
+
+      // WAVE_FORMAT_EXTENSIBLE (0xFFFE) wraps the real format tag in a
+      // sub-format GUID whose first two bytes are the PCM/float format code.
+      if (audioFormat === 0xfffe) {
+        if (chunkSize < 40 || offset + 8 + 26 > buffer.length) {
+          throw new Error("Invalid WAVE_FORMAT_EXTENSIBLE fmt chunk: too short");
+        }
+        audioFormat = view.getUint16(offset + 8 + 24, true);
+      }
 
       if (audioFormat !== 1) {
         throw new Error(`Unsupported WAV audio format: ${audioFormat} (only uncompressed PCM = 1 supported)`);
@@ -60,10 +72,14 @@ export function parseWav(buffer: Uint8Array): WavAudio {
       }
     } else if (chunkId === "data") {
       const dataOffset = offset + 8;
-      if (dataOffset + chunkSize > buffer.length) {
+      // Streaming encoders (e.g. ffmpeg writing to a pipe) emit 0xFFFFFFFF as
+      // the data size; treat that as "until end of file".
+      const isStreamingSize = chunkSize === 0xffffffff;
+      if (!isStreamingSize && dataOffset + chunkSize > buffer.length) {
         throw new Error(`Corrupted data chunk: chunk size ${chunkSize} extends beyond file size ${buffer.length}`);
       }
-      const pcmBytes = buffer.subarray(dataOffset, dataOffset + chunkSize);
+      const dataEnd = isStreamingSize ? buffer.length : dataOffset + chunkSize;
+      const pcmBytes = buffer.subarray(dataOffset, dataEnd);
       
       // Convert raw byte array (Little Endian) to Int16Array
       const sampleCount = Math.floor(pcmBytes.length / 2);
@@ -73,6 +89,8 @@ export function parseWav(buffer: Uint8Array): WavAudio {
         samples[i] = pcmView.getInt16(i * 2, true);
       }
     }
+
+    if (chunkId === "data" && chunkSize === 0xffffffff) break;
 
     // Move to next chunk (RIFF chunks are padded to 2-byte boundaries)
     offset += 8 + chunkSize + (chunkSize % 2);
