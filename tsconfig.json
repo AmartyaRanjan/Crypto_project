@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "jsx": "preserve",
+    "types": ["bun", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@cryptowave/crypto": ["packages/crypto/src/index.ts"],
+      "@cryptowave/protocol": ["packages/protocol/src/index.ts"],
+      "@cryptowave/audio": ["packages/audio/src/index.ts"],
+      "@/*": ["apps/web/*"]
+    }
+  }
+}
