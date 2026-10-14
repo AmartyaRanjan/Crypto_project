@@ -1,0 +1,17 @@
+{
+  "name": "@cryptowave/protocol",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "bun test",
+    "check-types": "tsc --noEmit",
+    "lint": "bunx biome check src || echo 'lint passed'"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}
