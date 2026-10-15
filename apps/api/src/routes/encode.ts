@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
-import { parseWav, writeWav, embedLSB, calculateCapacity, calculateMetrics } from "@cryptowave/audio";
-import { encryptMessage } from "@cryptowave/crypto";
+import { parseWav, writeWav, embedLSB, calculateCapacity, calculateMetrics, appendRecoveryChunk, buildRecoveryAad, RECOVERY_FORMAT_VERSION, RECOVERY_KDF_ID, RECOVERY_CIPHER_ID } from "@cryptowave/audio";
+import { encryptMessage, encryptBytes } from "@cryptowave/crypto";
 import {
   encodePacket,
   KdfAlgorithm,
@@ -9,6 +9,11 @@ import {
   HEADER_SIZE,
   PacketHeader,
 } from "@cryptowave/protocol";
+
+// Bounded upload ceiling: keeps the recovery payload and the stego WAV within
+// a sane memory footprint. The recovery ciphertext is separately capped by
+// MAX_RECOVERY_PAYLOAD_SIZE inside the audio package.
+const MAX_UPLOAD_SIZE = 160 * 1024 * 1024; // 160 MB
 
 export const encodeRoute = new Elysia().post(
   "/api/v1/encode",
@@ -33,6 +38,16 @@ export const encodeRoute = new Elysia().post(
 
     const audioArrayBuffer = await audio.arrayBuffer();
     const audioBytes = new Uint8Array(audioArrayBuffer);
+
+    // 1. Preserve the exact original WAV bytes before parsing or modifying anything.
+    const originalWavBytes = audioBytes.slice();
+
+    if (audioBytes.length > MAX_UPLOAD_SIZE) {
+      set.status = 413;
+      return {
+        error: `Upload size (${audioBytes.length} bytes) exceeds the maximum allowed limit of ${MAX_UPLOAD_SIZE} bytes.`,
+      };
+    }
 
     let wavAudio;
     try {
@@ -103,6 +118,29 @@ export const encodeRoute = new Elysia().post(
       samples: stegoSamples,
     });
 
+    // 2. Preserve an encrypted, recoverable copy of the complete original WAV
+    //    inside a custom RIFF/WAV chunk. This uses an independent recovery
+    //    encryption context (fresh salt + fresh nonce + separate AAD) so the
+    //    recovery payload is never tied to the message-encryption key/nonce.
+    const recoveryAad = buildRecoveryAad(originalWavBytes.length);
+    const recovery = encryptBytes(originalWavBytes, password, recoveryAad);
+
+    const stegoWithRecovery = appendRecoveryChunk(stegoWavBytes, {
+      version: RECOVERY_FORMAT_VERSION,
+      kdfId: RECOVERY_KDF_ID,
+      cipherId: RECOVERY_CIPHER_ID,
+      flags: 0,
+      originalLength: originalWavBytes.length,
+      saltLength: recovery.salt.length,
+      nonceLength: recovery.nonce.length,
+      tagLength: recovery.tag.length,
+      ciphertextLength: recovery.ciphertext.length,
+      salt: recovery.salt,
+      nonce: recovery.nonce,
+      tag: recovery.tag,
+      ciphertext: recovery.ciphertext,
+    });
+
     const metrics = calculateMetrics(
       wavAudio.samples,
       stegoSamples,
@@ -114,7 +152,7 @@ export const encodeRoute = new Elysia().post(
     set.headers["Content-Disposition"] = 'attachment; filename="stego.wav"';
     set.headers["X-CryptoWave-Metrics"] = JSON.stringify(metrics);
 
-    return new Response(Buffer.from(stegoWavBytes), {
+    return new Response(Buffer.from(stegoWithRecovery), {
       headers: {
         "Content-Type": "audio/wav",
         "Content-Disposition": 'attachment; filename="stego.wav"',

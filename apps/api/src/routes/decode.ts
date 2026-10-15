@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { parseWav, extractLSB, extractLSBHeader } from "@cryptowave/audio";
+import { parseWav, extractLSB, extractLSBHeader, extractRecoveryChunk } from "@cryptowave/audio";
 import { decryptMessage } from "@cryptowave/crypto";
 import {
   decodeHeader,
@@ -35,6 +35,17 @@ export const decodeRoute = new Elysia().post(
     } catch (err: any) {
       set.status = 400;
       return { error: `Invalid stego audio file: ${err.message}` };
+    }
+
+    // Probe for the original-audio recovery chunk. This is additive: legacy
+    // stego WAVs without a recovery chunk still decode their messages, but the
+    // caller is told that original-audio restoration is unavailable.
+    let recoveryAvailable = false;
+    try {
+      extractRecoveryChunk(audioBytes);
+      recoveryAvailable = true;
+    } catch {
+      recoveryAvailable = false;
     }
 
     
@@ -103,6 +114,7 @@ export const decodeRoute = new Elysia().post(
       return {
         success: true,
         message,
+        recoveryAvailable,
         packetInfo: {
           version: header.version,
           kdf: KdfAlgorithm[header.kdfId] || header.kdfId,
