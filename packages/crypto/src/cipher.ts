@@ -106,3 +106,22 @@ export function decryptMessage(
   const key = deriveKey(password, salt);
   return decryptPayload(ciphertext, key, nonce, tag, aad);
 }
+
+export function encryptBytes(
+  plaintext: Uint8Array,
+  password: string,
+  aad?: Uint8Array
+): EncryptionResult & { salt: Uint8Array } {
+  return encryptMessage(plaintext, password, aad);
+}
+
+export function decryptBytes(
+  ciphertext: Uint8Array,
+  password: string,
+  salt: Uint8Array,
+  nonce: Uint8Array,
+  tag: Uint8Array,
+  aad?: Uint8Array
+): Uint8Array {
+  return decryptMessage(ciphertext, password, salt, nonce, tag, aad);
+}
