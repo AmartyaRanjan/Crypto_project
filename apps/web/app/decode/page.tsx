@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Unlock, CheckCircle2, AlertCircle, Loader2, Key, ShieldCheck, FileAudio, Lock, RefreshCw } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Unlock, Download, CheckCircle2, AlertCircle, Loader2, Key, ShieldCheck, FileAudio, Lock, RefreshCw, Info } from "lucide-react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { ClientWavInfo } from "@/lib/audio/wavParser";
-import { decodeAudioApi, DecodeSuccessResponse } from "@/lib/api/cryptoWave";
+import { decodeAudioApi, restoreOriginalWavApi, DecodeSuccessResponse } from "@/lib/api/cryptoWave";
+
+type RestoreStatus = "idle" | "loading" | "success" | "unavailable" | "error";
 
 export default function DecodePage() {
   const [stegoFile, setStegoFile] = useState<File | null>(null);
@@ -17,10 +19,23 @@ export default function DecodePage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [decodedResult, setDecodedResult] = useState<DecodeSuccessResponse | null>(null);
 
+  const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>("idle");
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
+  const [originalWavBlob, setOriginalWavBlob] = useState<Blob | null>(null);
+  const [originalWavFilename, setOriginalWavFilename] = useState<string>("original.wav");
+
+  const originalWavUrl = useMemo(
+    () => (originalWavBlob ? URL.createObjectURL(originalWavBlob) : null),
+    [originalWavBlob]
+  );
+
   const handleDecode = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setDecodedResult(null);
+    setRestoreStatus("idle");
+    setRestoreMsg(null);
+    setOriginalWavBlob(null);
 
     if (!stegoFile) {
       setErrorMsg("Please upload a stego .wav audio file.");
@@ -46,6 +61,30 @@ export default function DecodePage() {
 
       const res = await decodeAudioApi(stegoFile, password, lsbDepth);
       setDecodedResult(res);
+
+      // Original-audio restoration runs as a separate step so a restoration
+      // failure never hides a successfully decoded message.
+      setDecodeStage("05. Restoring Original Audio from CWOR Recovery Chunk...");
+      setRestoreStatus("loading");
+      try {
+        const restored = await restoreOriginalWavApi(stegoFile, password);
+        setOriginalWavBlob(restored.blob);
+        setOriginalWavFilename(restored.filename);
+        setRestoreStatus("success");
+        setRestoreMsg(null);
+      } catch (restoreErr: any) {
+        if (restoreErr?.errorCode === "RECOVERY_CHUNK_NOT_FOUND") {
+          setRestoreStatus("unavailable");
+          setRestoreMsg(
+            "Original audio recovery is unavailable: this stego WAV has no recovery data (legacy file created before recovery support, or not produced by CryptoWave). The decoded message above is still valid."
+          );
+        } else {
+          setRestoreStatus("error");
+          setRestoreMsg(
+            restoreErr?.message || "Original audio restoration failed. The decoded message above is still valid."
+          );
+        }
+      }
     } catch (err: any) {
       setErrorMsg(err.message || "Authentication failed. Check password or verify audio integrity.");
     } finally {
@@ -178,6 +217,50 @@ export default function DecodePage() {
                   <div>Sample Rate: <span className="text-zinc-200">{decodedResult.packetInfo.sampleRate} Hz</span></div>
                   <div>Channels: <span className="text-zinc-200">{decodedResult.packetInfo.channels === 1 ? "Mono" : "Stereo"}</span></div>
                 </div>
+              </div>
+
+              {/* Original Audio Restoration */}
+              <div className="border-t border-zinc-800/80 pt-4">
+                <div className="text-[11px] text-zinc-400 font-semibold mb-2">ORIGINAL AUDIO RESTORATION:</div>
+                {restoreStatus === "loading" && (
+                  <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+                    <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+                    <span>Restoring original WAV from encrypted recovery chunk...</span>
+                  </div>
+                )}
+                {restoreStatus === "success" && originalWavBlob && originalWavUrl && (
+                  <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3.5 space-y-2.5">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span>ORIGINAL WAV RESTORED (BYTE-IDENTICAL)</span>
+                    </div>
+                    <a
+                      href={originalWavUrl}
+                      download={originalWavFilename}
+                      className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-500 px-4 py-2.5 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400"
+                    >
+                      <Download className="h-4 w-4" /> Download Original WAV
+                    </a>
+                  </div>
+                )}
+                {restoreStatus === "unavailable" && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-300 space-y-1">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <Info className="h-4 w-4 shrink-0" />
+                      <span>ORIGINAL AUDIO UNAVAILABLE</span>
+                    </div>
+                    <p className="font-sans text-[11px] text-amber-200/80 leading-relaxed pl-6">{restoreMsg}</p>
+                  </div>
+                )}
+                {restoreStatus === "error" && (
+                  <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3.5 text-xs text-rose-400 space-y-1">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span>ORIGINAL AUDIO RESTORATION FAILED</span>
+                    </div>
+                    <p className="font-sans text-[11px] text-rose-300/80 leading-relaxed pl-6">{restoreMsg}</p>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

@@ -23,6 +23,7 @@ export interface EncodeResponse {
 export interface DecodeSuccessResponse {
   success: true;
   message: string;
+  recoveryAvailable?: boolean;
   packetInfo: {
     version: number;
     kdf: string;
@@ -32,6 +33,16 @@ export interface DecodeSuccessResponse {
     channels: number;
     lsbDepth: number;
   };
+}
+
+export interface RestoreResponse {
+  blob: Blob;
+  filename: string;
+}
+
+export interface RestoreApiError extends Error {
+  status?: number;
+  errorCode?: string | null;
 }
 
 export interface AnalyzeSuccessResponse {
@@ -126,8 +137,7 @@ export async function decodeAudioApi(
   return json as DecodeSuccessResponse;
 }
 
-export async function analyzeAudioApi(
-  originalFile: File,
+export async function analyzeAudioApi(  originalFile: File,
   stegoFile: File,
   lsbDepth: 1 | 2 = 1
 ): Promise<AnalyzeSuccessResponse> {
@@ -147,4 +157,40 @@ export async function analyzeAudioApi(
   }
 
   return json as AnalyzeSuccessResponse;
+}
+
+export async function restoreOriginalWavApi(
+  stegoFile: File,
+  password: string
+): Promise<RestoreResponse> {
+  const formData = new FormData();
+  formData.append("stegoAudio", stegoFile);
+  formData.append("password", password);
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/restore`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorCode = res.headers.get("X-CryptoWave-Error-Code");
+    let errorMsg = `Server returned status ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson.error) errorMsg = errJson.error;
+    } catch {}
+    const error = new Error(errorMsg) as RestoreApiError;
+    error.status = res.status;
+    error.errorCode = errorCode;
+    throw error;
+  }
+
+  const blob = await res.blob();
+  const contentDisp = res.headers.get("Content-Disposition");
+  let filename = "original.wav";
+  if (contentDisp && contentDisp.includes("filename=")) {
+    filename = contentDisp.split("filename=")[1].replace(/"/g, "").trim();
+  }
+
+  return { blob, filename };
 }
